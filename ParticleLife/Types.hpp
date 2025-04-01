@@ -2,6 +2,8 @@
 
 #include <cstring>
 #include <algorithm>
+#include <execution>
+#include <array>
 
 constexpr double T_Epsilon = 1e-10;
 
@@ -132,6 +134,12 @@ inline Vec<N, T> operator-(const Vec<N, T>& vec1, const Vec<N, T> vec2)
 		ret[n] = vec1[n] - vec2[n];
 	}
 	return ret;
+}
+
+template<typename T>
+inline Vec<2, T> operator-(const Vec<2, T>& vec1, const Vec<2, T> vec2)
+{
+	return { vec1.x - vec2.x,vec1.y - vec2.y };
 }
 
 template<int N, typename T>

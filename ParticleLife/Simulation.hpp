@@ -8,15 +8,6 @@
 using std::map;
 using std::vector;
 
-class Ruleset
-{
-	map<int, map<int, double>> rules = {};
-
-public:
-	double operator ()(int p1, int p2);
-	void Set(int p, map<int, double> ruleset);
-};
-
 class Cell
 {
 public:
@@ -30,7 +21,7 @@ public:
 class Simulation
 {
 public:
-	Ruleset ruleset;
+	Grid<double> ruleset;
 	vector<Particle> particles = {};
 	RectD bounds;
 	Grid<Cell> cells;
@@ -39,6 +30,7 @@ public:
 	double friction;
 	double forceMult;
 	double repellMult;
+	double maxForce;
 	std::mt19937 rand;
 
 	void Step();
