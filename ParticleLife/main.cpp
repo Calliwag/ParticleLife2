@@ -21,19 +21,26 @@ void DrawLoop(Simulation* sim, map<int, Color>* typeColors, int windowX, int win
 	pos.DrawCircle(circleTexSize / 2, WHITE);
 	circleRender.EndMode();
 	raylib::Texture circleTex = circleRender.GetTexture();
-	SetTextureFilter(circleTex, RL_TEXTURE_FILTER_NEAREST);
+	SetTextureFilter(circleTex, RL_TEXTURE_FILTER_TRILINEAR);
 
-	double drawRad = sim->radius / 16;
+	double drawRad = sim->radius / 6;
+	raylib::Rectangle sourceRect(0, 0, circleTexSize, circleTexSize);
+	raylib::Rectangle destRect(0, 0, drawRad, drawRad);
+	raylib::Vector2 origin(0, 0);
+	double panSpeed = 5 / camera.zoom;
 
 	while (!window.ShouldClose())
 	{
+		//SetTraceLogLevel(LOG_FATAL);
 		window.BeginDrawing();
 		window.ClearBackground(BLACK);
 		camera.BeginMode();
-		std::for_each(std::execution::unseq, sim->particles.begin(), sim->particles.end(), [&](Particle& particle)
+		std::for_each(std::execution::seq, sim->particles.begin(), sim->particles.end(), [&](Particle& particle)
 			{
-				raylib::Vector2 pos(particle.pos.x - drawRad / 2, particle.pos.y - drawRad / 2);
-				circleTex.Draw(pos, 0, drawRad / circleTexSize, (*typeColors)[particle.type]);
+				destRect.x = particle.pos.x - drawRad / 2;
+				destRect.y = particle.pos.y - drawRad / 2;
+				circleTex.Draw(sourceRect, destRect, origin, 0, (*typeColors)[particle.type]);
+				
 			});
 		raylib::Rectangle rlBounds;
 		rlBounds.x = sim->bounds.c1.x;
@@ -45,7 +52,6 @@ void DrawLoop(Simulation* sim, map<int, Color>* typeColors, int windowX, int win
 		window.DrawFPS();
 		window.EndDrawing();
 
-		double panSpeed = 5 / camera.zoom;
 		if (raylib::Keyboard::IsKeyDown(KEY_UP))
 		{
 			camera.target.y -= panSpeed;
@@ -76,8 +82,6 @@ void DrawLoop(Simulation* sim, map<int, Color>* typeColors, int windowX, int win
 
 int main()
 {
-	SetTraceLogLevel(LOG_FATAL);
-
 	const int numTypes = 6;
 
 	Simulation sim;
@@ -89,10 +93,10 @@ int main()
 	printf("Seed: %i \n", seed);
 	sim.rand.seed(seed);
 	sim.RandomRuleset(numTypes);
-	sim.FillBounds(40000, numTypes);
+	sim.FillBounds(10000, numTypes);
 	sim.friction = 5.0;
 	sim.forceMult = 50;
-	sim.repellMult = 1;
+	sim.repellMult = 15; // 25
 	sim.maxForce = sim.repellMult * sim.forceMult;
 	sim.InitGrid();
 
@@ -112,7 +116,7 @@ int main()
 	}
 	int windowX = 800;
 	int windowY = 800;
-	int circleSize = 4;
+	int circleSize = 16;
 	std::thread drawThread([&]() {
 		DrawLoop(&sim, &typeColors, windowX, windowY, "Simulation", circleSize);
 		});
