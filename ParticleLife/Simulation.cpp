@@ -36,6 +36,7 @@ void Simulation::CalculateInteractions()
 {
 	double spanX = bounds.c2.x - bounds.c1.x;
 	double spanY = bounds.c2.y - bounds.c1.y;
+	double radiusSquared = radius * radius;
 	std::for_each(std::execution::par_unseq, particles.begin(), particles.end(), [&](Particle& particle)
 		{
 			Vec2d pos = particle.pos + particle.vel;
@@ -47,59 +48,65 @@ void Simulation::CalculateInteractions()
 					Vec2i _gridPos = (gridPos + Vec2i{ x,y });
 					_gridPos.x = (_gridPos.x + cells.X) % cells.X;
 					_gridPos.y = (_gridPos.y + cells.Y) % cells.Y;
-					vector<Particle*>& particles = cells[_gridPos].particles;
-					for (int i = 0; i < particles.size(); i++)
-					{
-						Particle& other = *particles[i];
-						if (&particle == &other)
-							continue;
-						Vec2d pos1 = pos;
-						Vec2d fixedPos1 = { 0,0 };
-						Vec2d pos2 = other.pos + other.vel;
-						double smallestDist = std::numeric_limits<double>::max();
-						for (int x = -1; x <= 1; x++)
-							for (int y = -1; y <= 1; y++)
-							{
-								Vec2d _pos1 = pos1;
-								_pos1.x += x * spanX;
-								_pos1.y += y * spanY;
-								Vec2d _axis = pos2 - _pos1;
-								double _dist = _axis.x * _axis.x + _axis.y * _axis.y;
-								if (_dist < smallestDist)
+					vector<Particle*>& cellParticles = cells[_gridPos].particles;
+					std::for_each(std::execution::unseq, cellParticles.begin(), cellParticles.end(), [&](Particle* otherPtr)
+						{
+							Particle& other = *otherPtr;
+							if (&particle == &other)
+								return;
+							Vec2d pos1 = pos;
+							Vec2d fixedPos1 = { 0,0 };
+							Vec2d pos2 = other.pos + other.vel;
+							double dist = std::numeric_limits<double>::max();
+							Vec2d axis;
+							for (int x = -1; x <= 1; x++)
+								for (int y = -1; y <= 1; y++)
 								{
-									smallestDist = _dist;
-									fixedPos1 = _pos1;
+									Vec2d _pos1 = pos1;
+									_pos1.x += x * spanX;
+									_pos1.y += y * spanY;
+									Vec2d _axis = pos2 - _pos1;
+									double _dist = _axis.x * _axis.x + _axis.y * _axis.y;
+									if (_dist < radiusSquared)
+									{
+										axis = _axis;
+										dist = _dist;
+										fixedPos1 = _pos1;
+										break;
+									}
 								}
+							pos1 = fixedPos1;
+							if (dist > radiusSquared)
+								return;
+							dist = sqrt(dist);
+							double mult = ruleset[{particle.type, other.type}];
+							axis *= (1 / dist);
+							double frac = dist / radius;
+							double force = 0;
+							if (frac < 1 / 3.0)
+							{
+								frac = 3 * frac;
+								force = repellMult * (frac - 1);
 							}
-						pos1 = fixedPos1;
-						Vec2d axis = pos2 - pos1;
-						double dist = Mag(axis);
-						if (dist > radius)
-							continue;
-						double mult = ruleset[{particle.type, other.type}];
-						axis *= (1 / dist);
-						double frac = dist / radius;
-						double force = 0;
-						if (frac < 1 / 3.0)
-						{
-							frac = 3 * frac;
-							force = repellMult * (frac - 1);
-						}
-						else if (frac < 2 / 3.0)
-						{
-							frac = 3 * (frac - 1 / 3.0);
-							force = mult * frac;
-						}
-						else
-						{
-							frac = 3 * (frac - 2 / 3.0);
-							force = mult * (1 - frac);
-						}
-						force *= forceMult;
-						if (force > maxForce) force = maxForce;
-						if (force < -maxForce) force = -maxForce;
-						particle.acc += force * axis;
-					}
+							else if (frac < 2 / 3.0)
+							{
+								frac = 3 * (frac - 1 / 3.0);
+								force = mult * frac;
+							}
+							else
+							{
+								frac = 3 * (frac - 2 / 3.0);
+								force = mult * (1 - frac);
+							}
+							force *= forceMult;
+							if (force > maxForce) force = maxForce;
+							if (force < -maxForce) force = -maxForce;
+
+							{
+								//std::lock_guard<std::mutex> lock(particle.accMutex);
+								particle.acc += force * axis;
+							}
+						});
 				}
 			}
 		});
@@ -110,23 +117,26 @@ void Simulation::UpdateParticles()
 	for (int i = 0; i < particles.size(); i++)
 	{
 		Particle& particle = particles[i];
-		particle.Update(deltaTime);
-		particle.vel -= friction * particle.vel * deltaTime;
-		if (particle.pos.x < bounds.c1.x)
 		{
-			particle.pos.x += bounds.c2.x - bounds.c1.x;
-		}
-		else if (particle.pos.x >= bounds.c2.x)
-		{
-			particle.pos.x += bounds.c1.x - bounds.c2.x;
-		}
-		if (particle.pos.y < bounds.c1.y)
-		{
-			particle.pos.y += bounds.c2.y - bounds.c1.y;
-		}
-		else if (particle.pos.y >= bounds.c2.y)
-		{
-			particle.pos.y += bounds.c1.y - bounds.c2.y;
+			//std::lock_guard<std::mutex> lock(particle.pvMutex);
+			particle.Update(deltaTime);
+			particle.vel -= friction * particle.vel * deltaTime;
+			if (particle.pos.x < bounds.c1.x)
+			{
+				particle.pos.x += bounds.c2.x - bounds.c1.x;
+			}
+			else if (particle.pos.x >= bounds.c2.x)
+			{
+				particle.pos.x += bounds.c1.x - bounds.c2.x;
+			}
+			if (particle.pos.y < bounds.c1.y)
+			{
+				particle.pos.y += bounds.c2.y - bounds.c1.y;
+			}
+			else if (particle.pos.y >= bounds.c2.y)
+			{
+				particle.pos.y += bounds.c1.y - bounds.c2.y;
+			}
 		}
 	}
 }

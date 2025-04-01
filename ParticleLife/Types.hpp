@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <execution>
 #include <array>
+#include <chrono>
 
 constexpr double T_Epsilon = 1e-10;
 
@@ -89,6 +90,21 @@ public:
 	};
 	bool CheckBound(int x, int y) const { return (x >= 0) && (y >= 0) && (x < X) && (y < Y); };
 	bool CheckBound(Vec2i vec) const { return CheckBound(vec.x, vec.y); };
+};
+
+class Timer
+{
+private:
+	std::chrono::steady_clock::time_point last = std::chrono::steady_clock::now();
+
+public:
+	double operator()()
+	{
+		std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+		int miS = std::chrono::duration_cast<std::chrono::microseconds>(now - last).count();
+		last = now;
+		return miS / (double)1000000;
+	}
 };
 
 template<typename T>
