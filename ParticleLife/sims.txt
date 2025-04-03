@@ -1,0 +1,4 @@
+Good cell seperation:
+	const int numTypes = 2;
+	sim.types[0] = TypeInfo(T_Pi, 0.296705973, 0.67);
+	sim.types[1] = TypeInfo(T_Pi / 4, 0.05, 0.2);

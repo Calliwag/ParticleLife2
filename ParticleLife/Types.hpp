@@ -2,11 +2,12 @@
 
 #include <cstring>
 #include <algorithm>
-#include <execution>
-#include <array>
 #include <chrono>
+#include <cmath>
+#include <atomic>
 
 constexpr double T_Epsilon = 1e-10;
+constexpr double T_Pi = 3.141592653589793;
 
 template<typename T>
 inline T lerp(T val1, T val2, double part)
@@ -45,6 +46,7 @@ public:
 	Vec<2, T> c2;
 
 	inline bool CheckBound(Vec<2, T> point) const { return (point.x >= c1.x) && (point.y >= c1.y) && (point.x <= c2.x) && (point.y <= c2.y); }
+	inline T Area() const { return (c2.x - c1.x) * (c2.y - c1.y); }
 };
 
 typedef Rect<int> RectI;
@@ -107,11 +109,30 @@ public:
 	}
 };
 
+class SpinLock
+{
+private:
+	std::atomic_flag lock{};
+public:
+	SpinLock() /*: lock(ATOMIC_FLAG_INIT)*/ {};
+	SpinLock(const SpinLock& other) = delete;
+	void Lock()
+	{
+		while (lock.test_and_set(std::memory_order_acquire))
+			lock.wait(true, std::memory_order_relaxed);
+	}
+	void Unlock()
+	{
+		lock.clear(std::memory_order_release);
+		lock.notify_one();
+	}
+};
+
 template<typename T>
 Grid<T> Convolution(const Grid<T>& image, Grid<T> kernel);
 
 template<int N, typename T>
-inline Vec<N, T> operator+(const Vec<N, T>& vec1, const Vec<N, T> vec2)
+inline Vec<N, T> operator+(const Vec<N, T>& vec1, const Vec<N, T>& vec2)
 {
 	Vec<N, T> ret;
 	for (int n = 0; n < N; n++)
@@ -122,27 +143,27 @@ inline Vec<N, T> operator+(const Vec<N, T>& vec1, const Vec<N, T> vec2)
 }
 
 template<typename T>
-inline Vec<2, T> operator+(const Vec<2, T>& vec1, const Vec<2, T> vec2)
+inline Vec<2, T> operator+(const Vec<2, T>& vec1, const Vec<2, T>& vec2)
 {
-	return {vec1[0] + vec2[0],vec1[1] + vec2[1]};
+	return {vec1.x + vec2.x,vec1.y + vec2.y};
 }
 
 template<int N, typename T>
-inline Vec<N, T>& operator+=(Vec<N, T>& vec1, const Vec<N, T> vec2)
+inline Vec<N, T>& operator+=(Vec<N, T>& vec1, const Vec<N, T>& vec2)
 {
 	vec1 = vec1 + vec2;
 	return vec1;
 }
 
 template<typename T>
-inline Vec<2, T>& operator+=(Vec<2, T>& vec1, const Vec<2, T> vec2)
+inline Vec<2, T>& operator+=(Vec<2, T>& vec1, const Vec<2, T>& vec2)
 {
-	vec1 = { vec1[0] + vec2[0],vec1[1] + vec2[1] };
+	vec1 = { vec1.x + vec2.x,vec1.y + vec2.y };
 	return vec1;
 }
 
 template<int N, typename T>
-inline Vec<N, T> operator-(const Vec<N, T>& vec1, const Vec<N, T> vec2)
+inline Vec<N, T> operator-(const Vec<N, T>& vec1, const Vec<N, T>& vec2)
 {
 	Vec<N, T> ret;
 	for (int n = 0; n < N; n++)
@@ -153,22 +174,22 @@ inline Vec<N, T> operator-(const Vec<N, T>& vec1, const Vec<N, T> vec2)
 }
 
 template<typename T>
-inline Vec<2, T> operator-(const Vec<2, T>& vec1, const Vec<2, T> vec2)
+inline Vec<2, T> operator-(const Vec<2, T>& vec1, const Vec<2, T>& vec2)
 {
 	return { vec1.x - vec2.x,vec1.y - vec2.y };
 }
 
 template<int N, typename T>
-inline Vec<N, T>& operator-=(Vec<N, T>& vec1, const Vec<N, T> vec2)
+inline Vec<N, T>& operator-=(Vec<N, T>& vec1, const Vec<N, T>& vec2)
 {
 	vec1 = vec1 - vec2;
 	return vec1;
 }
 
 template<typename T>
-inline Vec<2, T>& operator-=(Vec<2, T>& vec1, const Vec<2, T> vec2)
+inline Vec<2, T>& operator-=(Vec<2, T>& vec1, const Vec<2, T>& vec2)
 {
-	vec1 = { vec1[0] - vec2[0],vec1[1] - vec2[1] };
+	vec1 = { vec1.x - vec2.x,vec1.y - vec2.y };
 	return vec1;
 }
 
@@ -197,7 +218,7 @@ inline Vec<N, T> operator*(const Vec<N,T>& vec, double scale)
 template<typename T>
 inline Vec<2, T> operator*(const Vec<2, T>& vec, double scale)
 {
-	return { (T)(vec[0] * scale),(T)(vec[1] * scale) };
+	return { (T)(vec.x * scale),(T)(vec.y * scale) };
 }
 
 template<int N, typename T>
@@ -214,7 +235,7 @@ inline Vec<N, T>& operator*=(Vec<N, T>& vec, double scale)
 }
 
 template<int N, typename T>
-inline double Mag(Vec<N, T> vec)
+inline double Mag(Vec<N, T>& vec)
 {
 	double mag = 0;
 	for (int n = 0; n < N; n++)
@@ -226,13 +247,13 @@ inline double Mag(Vec<N, T> vec)
 }
 
 template<typename T>
-inline double Mag(Vec<2, T> vec)
+inline double Mag(Vec<2, T>& vec)
 {
-	return sqrt(vec[0] * vec[0] + vec[1] * vec[1]);
+	return sqrt(vec.x * vec.x + vec.y * vec.y);
 }
 
 template<int N, typename T>
-inline Vec<N, T> Norm(Vec<N, T> vec)
+inline Vec<N, T> Norm(Vec<N, T>& vec)
 {
 	double mag = 0;
 	for (int n = 0; n < N; n++)
@@ -244,15 +265,15 @@ inline Vec<N, T> Norm(Vec<N, T> vec)
 }
 
 template<typename T>
-inline Vec<2, T> Norm(Vec<2, T> vec)
+inline Vec<2, T> Norm(Vec<2, T>& vec)
 {
-	double mag = sqrt(vec[0] * vec[0] + vec[1] * vec[1]);
+	double mag = sqrt(vec.x * vec.x + vec.y * vec.y);
 	if (mag < T_Epsilon) return { 0, 0 };
 	return vec * (1 / mag);
 }
 
 template<int N, typename T>
-inline double Dot(Vec<N, T> vec1, Vec<N, T> vec2)
+inline double Dot(Vec<N, T>& vec1, Vec<N, T>& vec2)
 {
 	double dot = 0;
 	for (int n = 0; n < N; n++)
@@ -263,7 +284,7 @@ inline double Dot(Vec<N, T> vec1, Vec<N, T> vec2)
 }
 
 template<typename T>
-inline Grid<T> Convolution(const Grid<T>& image, Grid<T> kernel)
+inline Grid<T> Convolution(const Grid<T>& image, Grid<T>& kernel)
 {
 	Grid<T> out(image.X,image.Y);
 

@@ -1,29 +1,50 @@
 #pragma once
 
 #include "Types.hpp"
-#include <mutex>
+#include <raylib-cpp.hpp>
+
+struct ColorPalette
+{
+	raylib::Color base = GREEN;
+	raylib::Color highCount = YELLOW;
+	raylib::Color midCount = BLUE;
+	raylib::Color lowCount = BROWN;
+	raylib::Color closeCount = MAGENTA;
+
+	ColorPalette() {};
+	ColorPalette(raylib::Color Base, raylib::Color High, raylib::Color Mid, raylib::Color Low, raylib::Color Close) : base(Base), highCount(High), midCount(Mid), lowCount(Low), closeCount(Close) {};
+};
+
+class TypeInfo
+{
+public:
+	double fixedRotation;
+	double forceRotation;
+	double moveDist;
+	double mass;
+	double ratio;
+	ColorPalette palette;
+
+	TypeInfo(double FixedRotation, double ForceRotation, double MoveDist, double Mass, double Ratio) : fixedRotation(FixedRotation), forceRotation(ForceRotation), moveDist(MoveDist), mass(Mass), ratio(Ratio) {};
+	TypeInfo() {};
+};
 
 class Particle
 {
 public:
 	Vec2d pos = { 0,0 };
-	Vec2d vel = { 0,0 };
-	Vec2d acc = { 0,0 };
-	double mass = 1;
-	bool active = true;
+	float angle = 0;
+	float dAngle = 0;
+	float count = 0;
+	float closeCount = 0;
 	int type = -1;
-	std::mutex accMutex = {};
-	std::mutex pvMutex = {};
 
 	Particle() {};
 	Particle(const Particle& other)
 	{
 		pos = other.pos;
-		vel = other.vel;
-		acc = other.acc;
-		mass = other.mass;
-		active = other.active;
+		angle = other.angle;
 		type = other.type;
 	}
-	void Update(double timestep);
+	void Update(TypeInfo& typeInfo);
 };

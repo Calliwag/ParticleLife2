@@ -4,16 +4,30 @@
 #include <map>
 #include <vector>
 #include <random>
+#include <mutex>
 
 using std::map;
 using std::vector;
+using std::mutex;
 
 class Cell
 {
 public:
 	vector<Particle*> particles = {};
+	//SpinLock lock;
+
+	Cell()
+	{
+		particles.reserve(25);
+	}
+	Cell* operator=(const Cell&)
+	{
+		particles = {};
+		return this;
+	}
 	void Clear()
 	{
+		particles.reserve(100);
 		particles.clear();
 	}
 };
@@ -21,24 +35,19 @@ public:
 class Simulation
 {
 public:
-	Grid<double> ruleset;
+	map<int,TypeInfo> types;
 	vector<Particle> particles = {};
 	RectD bounds;
 	Grid<Cell> cells;
-	double deltaTime = 1;
 	double radius;
-	double friction;
-	double forceMult;
-	double repellMult;
-	double maxForce;
-	std::mt19937 rand;
+	double closeRadius;
+	std::mt19937* rand;
 
 	void Step();
 	void UpdateGrid();
 	Vec2i GridPos(Vec2d pos);
 	void CalculateInteractions();
 	void UpdateParticles();
-	void FillBounds(int count, int types);
-	void RandomRuleset(int types);
+	void FillBounds(int count, int typeCount);
 	void InitGrid();
 };

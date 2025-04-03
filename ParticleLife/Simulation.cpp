@@ -1,6 +1,15 @@
 #include "Simulation.hpp"
 #include <execution>
 
+inline float mmod(float a, float n)
+{
+	return fmod(fmod(a, n) + n, n);
+}
+
+inline int dsign(double x) {
+	return (x < 0) ? -1 : (x > 0) ? 1 : 0;
+}
+
 void Simulation::Step()
 {
 	UpdateGrid();
@@ -16,10 +25,26 @@ void Simulation::UpdateGrid()
 	}
 	for (int i = 0; i < particles.size(); i++)
 	{
-		Vec2d pos = particles[i].pos + particles[i].vel;
-		Vec2i gridPos = GridPos(pos);
-		cells[gridPos].particles.push_back(&particles[i]);
+		Particle& particle = particles[i];
+		Vec2i gridPos = GridPos(particle.pos);
+		//cells[gridPos].lock.Lock();
+		cells[gridPos].particles.push_back(&particle);
+		//cells[gridPos].lock.Unlock();
 	}
+	//for (int i = 0; i < cells.X * cells.Y; i++)
+	//{
+	//	cells.arr[i].Clear();
+	//	//cells.arr[i].particles.reserve(100);
+	//}
+	//std::for_each(std::execution::unseq, particles.begin(), particles.end(), [&](Particle& particle)
+	//	{
+	//		Vec2d pos = particle.pos;
+	//		Vec2i gridPos = GridPos(pos);
+	//		Cell& cell = cells[gridPos];
+	//		//cell.lock.Lock();
+	//		cell.particles.push_back(&particle);
+	//		//cell.lock.Unlock();
+	//	});
 }
 
 Vec2i Simulation::GridPos(Vec2d pos)
@@ -36,91 +61,84 @@ void Simulation::CalculateInteractions()
 {
 	double spanX = bounds.c2.x - bounds.c1.x;
 	double spanY = bounds.c2.y - bounds.c1.y;
-	double radiusSquared = radius * radius;
-	std::for_each(std::execution::par_unseq, particles.begin(), particles.end(), [&](Particle& particle)
+	double radiusSqr = radius * radius;
+	double closeRadiusSqr = closeRadius * closeRadius;
+	std::for_each(std::execution::par, particles.begin(), particles.end(), [&](Particle& particle)
 		{
-			Vec2d pos = particle.pos + particle.vel;
-			Vec2i gridPos = GridPos(pos);
+			particle.count = 0;
+			particle.closeCount = 0;
+			Vec2i gridPos = GridPos(particle.pos);
+			float left = 0;
+			float right = 0;
+			auto& cellParticles = cells[gridPos].particles;
+			Vec2d thisPos = particle.pos;
+			Vec2d rightNorm = { sin(particle.angle),-cos(particle.angle)};
+			bool fixPos = (gridPos.x == 0)
+				|| (gridPos.y == 0)
+				|| (gridPos.x == cells.X - 1)
+				|| (gridPos.y == cells.Y - 1);
 			for(int x = -1; x <= 1; x++)
 			{
 				for (int y = -1; y <= 1; y++)
 				{
-					Vec2i _gridPos = (gridPos + Vec2i{ x,y });
-					_gridPos.x = (_gridPos.x + cells.X) % cells.X;
-					_gridPos.y = (_gridPos.y + cells.Y) % cells.Y;
-					vector<Particle*>& cellParticles = cells[_gridPos].particles;
-					std::for_each(std::execution::unseq, cellParticles.begin(), cellParticles.end(), [&](Particle* otherPtr)
+					Vec2i _gridPos = {
+						(x + gridPos.x + cells.X) % cells.X,
+						(y + gridPos.y + cells.Y) % cells.Y
+					};
+					Vec2d offset = { 0,0 };
+					if(fixPos)
+					{
+						if (_gridPos.x - gridPos.x > 1)
 						{
-							Particle& other = *otherPtr;
-							if (&particle == &other)
-								return;
-							Vec2d pos1 = pos;
-							Vec2d fixedPos1 = { 0,0 };
-							Vec2d pos2 = other.pos + other.vel;
-							double dist = std::numeric_limits<double>::max();
-							Vec2d axis;
-							for (int x = -1; x <= 1; x++)
-								for (int y = -1; y <= 1; y++)
-								{
-									Vec2d _pos1 = pos1;
-									_pos1.x += x * spanX;
-									_pos1.y += y * spanY;
-									Vec2d _axis = pos2 - _pos1;
-									double _dist = _axis.x * _axis.x + _axis.y * _axis.y;
-									if (_dist < radiusSquared)
-									{
-										axis = _axis;
-										dist = _dist;
-										fixedPos1 = _pos1;
-										break;
-									}
-								}
-							pos1 = fixedPos1;
-							if (dist > radiusSquared)
-								return;
-							dist = sqrt(dist);
-							double mult = ruleset[{particle.type, other.type}];
-							axis *= (1 / dist);
-							double frac = dist / radius;
-							double force = 0;
-							if (frac < 1 / 3.0)
-							{
-								frac = 3 * frac;
-								force = repellMult * (frac - 1);
-							}
-							else if (frac < 2 / 3.0)
-							{
-								frac = 3 * (frac - 1 / 3.0);
-								force = mult * frac;
-							}
-							else
-							{
-								frac = 3 * (frac - 2 / 3.0);
-								force = mult * (1 - frac);
-							}
-							force *= forceMult;
-							if (force > maxForce) force = maxForce;
-							if (force < -maxForce) force = -maxForce;
-
-							{
-								//std::lock_guard<std::mutex> lock(particle.accMutex);
-								particle.acc += force * axis;
-							}
-						});
+							offset.x = -spanX;
+						}
+						else if (_gridPos.x - gridPos.x < -1)
+						{
+							offset.x = spanX;
+						}
+						if (_gridPos.y - gridPos.y > 1)
+						{
+							offset.y = -spanY;
+						}
+						else if (_gridPos.y - gridPos.y < -1)
+						{
+							offset.y = spanY;
+						}
+					}
+					vector<Particle*>& cellParticles = cells[_gridPos].particles;
+					for (int i = 0; i < cellParticles.size(); i++)
+					{
+						Particle& other = *cellParticles[i];
+						if (&particle == &other)
+							continue;
+						Vec2d axis = other.pos - thisPos;
+						if(fixPos)
+							axis += offset;
+						if (axis.x > radius || axis.y > radius)
+							continue;
+						double distSqr = axis.x * axis.x + axis.y * axis.y;
+						if (distSqr <= radiusSqr)
+						{
+							particle.count++;
+							if (distSqr < closeRadiusSqr)
+								particle.closeCount++;
+							Dot(axis, rightNorm) >= 0 ? right += types[other.type].mass : left += types[other.type].mass;
+						}
+					}
 				}
 			}
+			float total = left + right;
+			float difference = left - right;
+			TypeInfo type = types[particle.type];
+			particle.dAngle += type.fixedRotation + type.forceRotation * total * dsign(difference);
 		});
 }
 
 void Simulation::UpdateParticles()
 {
-	for (int i = 0; i < particles.size(); i++)
-	{
-		Particle& particle = particles[i];
+	std::for_each(std::execution::par_unseq, particles.begin(), particles.end(), [&](Particle& particle)
 		{
-			//std::lock_guard<std::mutex> lock(particle.pvMutex);
-			particle.Update(deltaTime);
-			particle.vel -= friction * particle.vel * deltaTime;
+			particle.Update(types[particle.type]);
 			if (particle.pos.x < bounds.c1.x)
 			{
 				particle.pos.x += bounds.c2.x - bounds.c1.x;
@@ -137,38 +155,40 @@ void Simulation::UpdateParticles()
 			{
 				particle.pos.y += bounds.c1.y - bounds.c2.y;
 			}
-		}
-	}
+		});
 }
 
-void Simulation::FillBounds(int count, int types)
+void Simulation::FillBounds(int count, int typeCount)
 {
 	std::uniform_real_distribution<double> distX(bounds.c1.x, bounds.c2.x);
 	std::uniform_real_distribution<double> distY(bounds.c1.y, bounds.c2.y);
-	std::uniform_real_distribution<double> distV(-1, 1);
-	std::uniform_int_distribution<int> distT(0, types - 1);
+	std::uniform_real_distribution<double> distA(0, 2 * T_Pi);
+	double sumRatio = 0;
+	for (int i = 0; i < typeCount; i++)
+	{
+		sumRatio += types[i].ratio;
+	}
+	std::uniform_real_distribution<double> distT(0, sumRatio);
 	for (int i = 0; i < count; i++)
 	{
-		Vec2d pos(distX(rand), distY(rand));
+		Vec2d pos(distX(*rand), distY(*rand));
 		Particle particle;
 		particle.pos = pos;
-		particle.vel = { distV(rand) * deltaTime,distV(rand) * deltaTime};
-		particle.acc = { 0,0 };
-		particle.type = distT(rand);
-		particles.push_back(particle);
-	}
-}
-
-void Simulation::RandomRuleset(int types)
-{
-	ruleset = Grid<double>(types, types);
-	std::uniform_real_distribution<double> distF(-1, 1);
-	for (int i = 0; i < types; i++)
-	{
-		for (int j = 0; j < types; j++)
+		particle.angle = distA(*rand);
+		double t = distT(*rand);
+		for (int j = 0; j < typeCount; j++)
 		{
-			ruleset[{i, j}] = distF(rand);
+			if (t <= types[j].ratio)
+			{
+				particle.type = j;
+				break;
+			}
+			else
+			{
+				t -= types[j].ratio;
+			}
 		}
+		particles.push_back(particle);
 	}
 }
 
